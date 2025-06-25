@@ -1,226 +1,85 @@
-コントローラ
------------------------------------------------------
-/* ===== 参照名前空間 ===== */
-using System;                                   // ◎  .NET 基本クラス
-using System.Collections.Generic;               // ◎  コレクション系
-using System.Linq;                              // ◎  LINQ クエリに必要
-using System.Web.Mvc;                           // ◎  ASP.NET MVC の基本型
-using FLMToursWebSystem.Models;                 // ◎  自作モデルを参照
-
-namespace FLMToursWebSystem.Controllers          // ◎  コントローラ名前空間
-{
-    public class AggregateController : Controller // ◎  集計専用コントローラ。Controller を継承
-    {
-        private TourDBContext db = new TourDBContext(); // ◎  EF‐Code First の DB コンテキスト
-
-        /* ─────────────────────────────────── */
-        /*               メインメニュー                 */
-        /* ─────────────────────────────────── */
-        public ActionResult AggregateMenu() => View();  // ◎  /Aggregate/AggregateMenu を返すだけ
-
-        /* ─────────────────────────────────── */
-        /*               年 別 集 計                  */
-        /* ─────────────────────────────────── */
-        public ActionResult AggregateByYear()        // ◎  GET : 入力フォーム表示
+        /* ======================================= */
+        /*             顧 客 別 集 計               */
+        /* ======================================= */
+        public ActionResult AggregateByCustomer()
         {
-            ViewBag.CategoryList = MakeCategoryList(""); // ◎  ドロップダウン初期値
-            ViewBag.ResultList   = null;                 // ◎  最初は結果なし
-            return View();                               // ◎  /Views/Aggregate/AggregateByYear.cshtml
-        }
-
-        /* ---------- POST : 集計処理 ---------- */
-        [HttpPost, ValidateAntiForgeryToken]            // ◎  CSRF 対策
-        public ActionResult AggregateByYear(int? year,  // ◎  入力：年 (null 許容)
-                                            string category) // ◎  入力：商品種別
-        {
-            bool hasError = false;                      // ◎  バリデーション判定用フラグ
-
-            if (year == null)                           // ◎  年未入力
-            {
-                ViewBag.YearError = "年は入力必須です";
-                hasError = true;
-            }
-            if (string.IsNullOrWhiteSpace(category))    // ◎  種別未入力
-            {
-                ViewBag.CategoryError = "商品種別は入力必須です";
-                hasError = true;
-            }
-
-            if (hasError)                               // ◎  どちらか不足ならフォーム再表示
-            {
-                ViewBag.Year          = year;           // ◎  入力保持
-                ViewBag.CategoryList  = MakeCategoryList(category);
-                ViewBag.Info          = null;           // ◎  0件メッセージを消す
-                return View();                          // ◎  Model は渡さない
-            }
-
-            /* ---------- 受注データ抽出 ---------- */
-            var query =
-                from o in db.Orders                    // ◎  Order テーブル
-                where o.Date.Year == year              // ◎  年が一致
-                   && (category == "ALL" ||            // ◎  ALL なら全件
-                       o.Category == category)         // ◎  そうでなければ種別で絞る
-                orderby o.InitTotal descending         // ◎  小計の大きい順
-                select new AggregateByYearViewModel    // ◎  ビュー用 DTO を生成
-                {
-                    Date      = o.Date,
-                    Item_Id   = o.Item_Id,
-                    InitTotal = o.InitTotal            // ◎  小計は DB に既存
-                };
-
-            /* ---------- 0 件チェック ---------- */
-            var list = query.ToList();                 // ◎  実行してメモリへ
-            if (list.Count == 0)
-            {
-                ViewBag.Year         = year;
-                ViewBag.Info         = "受注情報が存在しません";
-                ViewBag.CategoryList = MakeCategoryList(category);
-                return View();                         // ◎  Model なし
-            }
-
-            /* ---------- 合計金額計算 ---------- */
-            int total = 0;
-            foreach (var r in list) total += r.InitTotal;
-
-            /* ---------- ViewBag へ結果 ---------- */
-            ViewBag.Year         = year;
-            ViewBag.CategoryStr  = category;
-            ViewBag.Total        = total;
-            ViewBag.CategoryList = MakeCategoryList(category);
-
-            return View(list);                        // ◎  モデルとして結果リストを渡す
-        }
-
-        /* ─────────────────────────────────── */
-        /*               月 別 集 計                  */
-        /* ─────────────────────────────────── */
-        public ActionResult AggregateByMonth()        // ◎  GET : フォーム
-        {
-            ViewBag.CategoryList = MakeCategoryList("");
-            return View();
-        }
-
-        [HttpPost, ValidateAntiForgeryToken]          // ◎  POST : 集計
-        public ActionResult AggregateByMonth(int? year, int? month, string category)
-        {
-            bool hasError = false;
-
-            if (year  == null) { ViewBag.YearError  = "年は入力必須です";  hasError = true; }
-            if (month == null) { ViewBag.MonthError = "月は入力必須です"; hasError = true; }
-            if (string.IsNullOrWhiteSpace(category))
-            {
-                ViewBag.CategoryError = "商品種別は入力必須です";
-                hasError = true;
-            }
-
-            if (hasError)                            // ◎  エラーなら入力を保持して戻る
-            {
-                ViewBag.Year         = year;
-                ViewBag.Month        = month;
-                ViewBag.CategoryList = MakeCategoryList(category);
-                ViewBag.Info         = null;
-                return View();
-            }
-
-            /* ---------- 検索 ---------- */
-            var query =
-                from o in db.Orders
-                where o.Date.Year  == year
-                   && o.Date.Month == month
-                   && (category == "ALL" || o.Category == category)
-                orderby o.InitTotal descending
-                select new AggregateByMonthViewModel
-                {
-                    Date      = o.Date,
-                    Item_Id   = o.Item_Id,
-                    InitTotal = o.InitTotal
-                };
-
-            var list = query.ToList();
-
-            if (list.Count == 0)                     // ◎  0件
-            {
-                ViewBag.Year         = year;
-                ViewBag.Month        = month;
-                ViewBag.Info         = "受注情報が存在しません";
-                ViewBag.CategoryList = MakeCategoryList(category);
-                return View();
-            }
-
-            int total = 0;
-            foreach (var r in list) total += r.InitTotal;
-
-            ViewBag.Year         = year;
-            ViewBag.Month        = month;
-            ViewBag.CategoryStr  = category;
-            ViewBag.Total        = total;
-            ViewBag.CategoryList = MakeCategoryList(category);
-
-            return View(list);
-        }
-
-        /* ─────────────────────────────────── */
-        /*             顧 客 別 集 計                 */
-        /* ─────────────────────────────────── */
-        public ActionResult AggregateByCustomer()     // ◎  GET : フォーム
-        {
+            //ViewBag.ItemList = MakeItemList("");
+         
             return View();
         }
 
         [HttpPost, ValidateAntiForgeryToken]
-        public ActionResult AggregateByCustomer(string customer_id)   // ◎  顧客コード
+        public ActionResult AggregateByCustomer(string customerName)
         {
-            bool hasError = false;
-
-            if (string.IsNullOrWhiteSpace(customer_id))
+            /* ── 入力必須チェック ───────────────── */
+            //bool hasError = false;
+            if (string.IsNullOrWhiteSpace(customerName))
             {
-                ViewBag.CustomerError = "顧客IDは入力必須です";
-                hasError = true;
-            }
-
-            if (hasError)                            // ◎  未入力エラー
-            {
-                ViewBag.Customer = customer_id;      // ◎  入力保持
-                return View();                       // ◎  Model なし
-            }
-
-            /* ---------- 抽出 ---------- */
-            var query =
-                from o in db.Orders
-                where o.Customer == customer_id      // ◎  顧客一致
-                orderby o.InitTotal descending
-                select new AggregateByCustomerViewModel
-                {
-                    Date        = o.Date,
-                    Customer_Id = o.Customer,
-                    Item_Id     = o.Item_Id,
-                    InitTotal   = o.InitTotal
-                };
-
-            var list = query.ToList();
-
-            if (list.Count == 0)                     // ◎  0 件
-            {
-                ViewBag.Customer = customer_id;
-                ViewBag.Info     = "受注情報が存在しません";
+                ViewBag.CustomerError = "顧客名は入力必須です";
+                //hasError = true;
                 return View();
             }
 
+            //if (hasError)
+            //{
+            //    /* 入力値を保持して再表示 */
+            //    ViewBag.Customer = customerName;
+            //    ViewBag.Info = null;          // 0 件メッセージは消す
+            //    return View();                // Model は null
+            //}
+
+            /* 2-2 顧客テーブルから名前で検索（部分一致）*/
+            var ids =
+                (from c in db.Customers
+                 where c.Isdelete == false                   // 論理削除除外
+                    && c.Name.Contains(customerName)        // 部分一致
+                 select c.Customer).ToList();               // ← 顧客ID のリスト
+
+            if (ids.Count == 0)
+            {
+                ViewBag.Info = "該当する顧客が存在しません";
+                ViewBag.CustomerName = customerName;        // 入力保持
+                return View();
+            }
+
+            /* 2-3 Orders から抽出して集計 */
+            var query =
+                from o in db.Orders
+                where ids.Contains(o.Customer)               // ← 取得した ID に含まれる
+                orderby o.InitTotal descending
+                select new AggregateByCustomerViewModel
+                {
+                    Date = o.Date,
+                    Customer_Id = o.Customer,
+                    Item_Id = o.Item_Id,
+                    InitTotal = o.InitTotal
+                };
+
+            
+            var list = query.ToList();
+
+            /* ── 0 件ならメッセージ ───────────────── */
+            if (list.Count == 0)
+            {
+                ViewBag.CustomerName = customerName;
+                ViewBag.Info = "受注情報が存在しません";
+                return View();          // Model なし
+            }
+
+            /* ── 合計金額を計算 ─────────────────── */
             int total = 0;
             foreach (var r in list) total += r.InitTotal;
 
-            ViewBag.Customer = customer_id;
-            ViewBag.Total    = total;
+            ViewBag.Customer = customerName;
+            ViewBag.Total = total;
 
-            return View(list);                       // ◎  結果を Model として渡す
+            return View(list);          // Model に結果リストを渡す
         }
 
-        /* ─────────────────────────────────── */
-        /*         ドロップダウン作成ヘルパ              */
-        /* ─────────────────────────────────── */
+        /* ───────── ドロップダウン作成 ───────── */
         private SelectList MakeCategoryList(string selected)
         {
-            var src = new[]                      // ◎  無名型配列で選択肢を作成
+            var src = new[]
             {
                 new { Value = "",    Text = "選択してください" },
                 new { Value = "ALL", Text = "ALL" },
@@ -228,19 +87,31 @@ namespace FLMToursWebSystem.Controllers          // ◎  コントローラ名�
                 new { Value = "FLT", Text = "FLT (航空券)" },
                 new { Value = "HTL", Text = "HTL (ホテル)" }
             };
-            return new SelectList(src, "Value", "Text", selected); // ◎  SelectList 生成
+            return new SelectList(src, "Valu" +
+                "e", "Text", selected);
         }
 
-        private SelectList MakeItemList(string selected)
-        {
-            var ids =
-                (from o in db.Orders select o.Item_Id) // ◎  すべての Item_Id を取得
-                .Distinct()                            // ◎  重複排除
-                .OrderBy(id => id)                     // ◎  昇順
-                .ToList();
-
-            ids.Insert(0, "");                         // ◎  先頭に空文字を追加（"選択してください" 用）
-            return new SelectList(ids, selected);      // ◎  SelectList 生成
-        }
+        
     }
 }
+
+--------------------------------------------------------------------------------
+@* ───── 入力フォーム ───── *@
+@using (Html.BeginForm("AggregateByCustomer",  // action
+                       "Aggregate",            // controller
+                       FormMethod.Post))
+{
+    @Html.AntiForgeryToken()
+
+    <table>
+        <tr>
+            <td style="width:120px;">顧客ID</td>
+            <td>
+                <input type="text"
+                       name="customerName"
+                       value="@(ViewBag.CustomerName ?? "")"
+                       class="form-control w-100" />
+                <span class="text-danger">@ViewBag.CustomerNameError</span>
+            </td>
+        </tr>
+    </table>
